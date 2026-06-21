@@ -7,6 +7,7 @@ interface ApplicantUser {
   email: string
   full_name: string
   application_id: string
+  client_id: string
 }
 
 export const useApplicantAuthStore = defineStore('applicantAuth', {
@@ -30,7 +31,7 @@ export const useApplicantAuthStore = defineStore('applicantAuth', {
           email: email.trim().toLowerCase(),
           password: phone.trim()
         })
-
+        console.log('login response:', data)
         if (error) throw error
 
         const meta = data.user.user_metadata
@@ -43,7 +44,8 @@ export const useApplicantAuthStore = defineStore('applicantAuth', {
           id: data.user.id,
           email: data.user.email!,
           full_name: meta.full_name,
-          application_id: meta.application_id
+          application_id: meta.application_id,
+          client_id: meta.client_id
         }
 
         return true
@@ -62,14 +64,21 @@ export const useApplicantAuthStore = defineStore('applicantAuth', {
 
     async restoreSession() {
       const { data } = await supabase.auth.getSession()
+
+      console.log('session:', data.session)
+
       if (data.session?.user) {
+        console.log('metadata:', data.session.user.user_metadata)
+
         const meta = data.session.user.user_metadata
+
         if (meta.portal === 'onboarding_applicant') {
           this.user = {
             id: data.session.user.id,
             email: data.session.user.email!,
             full_name: meta.full_name,
-            application_id: meta.application_id
+            application_id: meta.application_id,
+            client_id: meta.client_id
           }
         }
       }
