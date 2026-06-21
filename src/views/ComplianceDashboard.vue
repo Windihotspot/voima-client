@@ -421,7 +421,7 @@ function goToAssessment() {
                 <span class="ch-status-dot" :style="{ background: rating.color }" />
                 {{ rating.label }}
               </div>
-              <v-btn
+              <!-- <v-btn
                 v-if="assessmentStatus !== 'completed'"
                 class="ch-btn-primary"
                 elevation="0"
@@ -430,7 +430,7 @@ function goToAssessment() {
               >
                 <v-icon start size="15">mdi-pencil-outline</v-icon>
                 Continue assessment
-              </v-btn>
+              </v-btn> -->
             </div>
           </div>
 
@@ -722,7 +722,7 @@ function goToAssessment() {
           </div>
 
           <!-- ── CTA if not complete ── -->
-          <div v-if="assessmentStatus !== 'completed'" class="ch-cta-banner mt-6">
+          <!-- <div v-if="assessmentStatus !== 'completed'" class="ch-cta-banner mt-6">
             <div class="ch-cta-left">
               <v-icon icon="mdi-clipboard-edit-outline" size="22" color="#2563eb" />
               <div>
@@ -737,7 +737,7 @@ function goToAssessment() {
               Continue assessment
               <v-icon end size="15">mdi-arrow-right</v-icon>
             </v-btn>
-          </div>
+          </div> -->
         </template>
       </main>
     </div>
