@@ -392,14 +392,11 @@ function goToAssessment() {
           <div class="ch-empty-icon">
             <v-icon icon="mdi-shield-off-outline" size="40" color="#94a3b8" />
           </div>
-          <h2 class="ch-empty-title">No assessment found</h2>
+          <h2 class="ch-empty-title">Assessment pending review</h2>
           <p class="ch-empty-sub">
-            Complete your Compliance Health Assessment to see your results here.
+            Your compliance assessment is being reviewed by the Voima team. Your results will appear
+            here once published.
           </p>
-          <v-btn class="ch-btn-primary mt-4" elevation="0" @click="goToAssessment">
-            <v-icon start>mdi-play-circle-outline</v-icon>
-            Start Assessment
-          </v-btn>
         </div>
 
         <template v-else>
@@ -762,7 +759,6 @@ function goToAssessment() {
 .ch-screen {
   min-height: 100vh;
   background: #f1f5f9;
-  font-family: 'Inter', sans-serif;
 }
 
 /* ── Top bar ────────────────────────────────────────────────────────── */
