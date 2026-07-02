@@ -664,7 +664,7 @@ function goToAssessment() {
             <div class="ch-card-head">
               <v-icon icon="mdi-table-check" size="16" color="#2563eb" />
               <span class="ch-card-title">Module Detail</span>
-              <span class="ch-card-sub">Score and weight for each compliance module</span>
+              <span class="ch-card-sub">Scores for each compliance module</span>
             </div>
             <div class="ch-table-wrap">
               <table class="ch-table">
@@ -673,7 +673,6 @@ function goToAssessment() {
                     <th>Module</th>
                     <th>Score</th>
                     <th class="ch-th-bar">Progress</th>
-                    <th>Weight</th>
                     <th>Rating</th>
                   </tr>
                 </thead>
@@ -699,9 +698,9 @@ function goToAssessment() {
                         />
                       </div>
                     </td>
-                    <td>
+                    <!-- <td>
                       <span class="ch-weight-pill">{{ mod.weight ?? 0 }}%</span>
-                    </td>
+                    </td> -->
                     <td>
                       <span
                         class="ch-mod-rating"
