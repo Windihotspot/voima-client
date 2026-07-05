@@ -25,7 +25,7 @@ const loadDashboard = async () => {
   try {
     const clientId = authStore.user?.client_id
     const { data, error: rpcErr } = await supabase.rpc(
-      'get_compliance_health_dashboard_client_v5',
+      'get_compliance_health_dashboard_client_v6',
       { p_client_id: clientId }
     )
     if (rpcErr) throw rpcErr
@@ -465,6 +465,43 @@ function goToAssessment() {
     'noopener,noreferrer'
   )
 }
+
+const evidenceRequests = computed<any[]>(() => dashboard.value?.evidence_requests ?? [])
+const uploadEvidenceForRequest = async (req: any, file: File) => {
+  if (!file) return
+  uploadingGapId.value = req.id
+  try {
+    const clientId = authStore.user?.client_id
+    const assessmentId = dashboard.value.assessment_id
+    const path = `${clientId}/${assessmentId}/${req.question_id}/${Date.now()}_${file.name}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('assessment-evidence')
+      .upload(path, file, { contentType: file.type })
+    if (uploadError) throw uploadError
+
+    const { error: rpcError } = await supabase.rpc('client_submit_evidence', {
+      p_assessment_id: assessmentId,
+      p_question_id: req.question_id,
+      p_file_path: path,
+      p_file_name: file.name,
+      p_file_size: file.size,
+      p_mime_type: file.type
+    })
+    if (rpcError) throw rpcError
+
+    showSnack('Evidence uploaded')
+    await loadDashboard()
+  } catch (e: any) {
+    showSnack('Upload failed: ' + e.message)
+  } finally {
+    uploadingGapId.value = null
+  }
+}
+const triggerFileInput = (id: string) => {
+  const el = document.getElementById(id) as HTMLInputElement | null
+  el?.click()
+}
 </script>
 
 <template>
@@ -777,12 +814,72 @@ function goToAssessment() {
                     color="primary"
                     class="mt-2"
                     :loading="uploadingGapId === gap.id"
-                    @click="(document.getElementById(`gap-file-${gap.id}`) as HTMLElement).click()"
+                    @click="triggerFileInput(`gap-file-${gap.id}`)"
                   >
                     <v-icon start size="15">mdi-upload</v-icon>
                     {{ gap.evidence_files?.length ? 'Upload another file' : 'Upload evidence' }}
                   </v-btn>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ch-card mt-6" v-if="evidenceRequests.length">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-paperclip" size="16" color="#2563eb" />
+              <span class="ch-card-title">Evidence Requests</span>
+              <span class="ch-card-sub">{{ evidenceRequests.length }} from your consultant</span>
+            </div>
+            <div class="ch-gaps-body">
+              <div
+                v-for="req in evidenceRequests"
+                :key="req.id"
+                class="gap-evidence"
+                :class="evidenceStatusClass(req.status)"
+              >
+                <div class="gap-ev-head">
+                  <v-icon size="13">mdi-paperclip</v-icon>
+                  {{ evidenceStatusLabel(req.status) }}
+                  <span class="gap-ev-due" v-if="req.due_date">
+                    · due {{ formatDate(req.due_date) }}
+                  </span>
+                </div>
+                <p class="gap-ev-instructions">
+                  <strong>{{ req.question_ref }}</strong> — {{ req.question_text }}
+                </p>
+                <p class="gap-ev-instructions">{{ req.instructions }}</p>
+                <p
+                  v-if="req.status === 'rejected' && req.review_notes"
+                  class="gap-ev-rejected-note"
+                >
+                  <v-icon size="12" color="#dc2626">mdi-alert-circle-outline</v-icon>
+                  {{ req.review_notes }}
+                </p>
+
+                <div v-if="req.evidence_files?.length" class="gap-ev-files">
+                  <div v-for="f in req.evidence_files" :key="f.id" class="gap-ev-file">
+                    <v-icon size="12">mdi-file-outline</v-icon>{{ f.file_name }}
+                  </div>
+                </div>
+
+                <input
+                  type="file"
+                  :id="`req-file-${req.id}`"
+                  style="display: none"
+                  @change="(e: any) => uploadEvidenceForRequest(req, e.target.files[0])"
+                />
+                <v-btn
+                  v-if="req.status !== 'approved'"
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  class="mt-2"
+                  :loading="uploadingGapId === req.id"
+                  @click="triggerFileInput(`req-file-${req.id}`)"
+                >
+                  <v-icon start size="15">mdi-upload</v-icon>
+                  {{ req.evidence_files?.length ? 'Upload another file' : 'Upload evidence' }}
+                </v-btn>
               </div>
             </div>
           </div>
