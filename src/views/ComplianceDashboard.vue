@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed, ref } from 'vue'
+import { onMounted, onUnmounted, computed, ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import VueApexCharts from 'vue3-apexcharts'
 import { supabase } from '@/services/supabase'
@@ -14,40 +14,176 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const dashboard = ref<any>(null)
 const applicationId = authStore.user?.application_id
+const liveUpdateBanner = ref(false)
+const uploadingGapId = ref<string | null>(null)
+let realtimeChannel: any = null
 
 // ── Load ───────────────────────────────────────────────────────────────
 const loadDashboard = async () => {
   loading.value = true
   error.value = null
   try {
-    console.log('store:', authStore.user)
-    const clientId = authStore.user?.client_id // however your store exposes this
-    // const clientId = '0ffff9e7-830f-422a-8009-dc88a08efc7b' // however your store exposes this
-    console.log('client id:', clientId)
+    const clientId = authStore.user?.client_id
     const { data, error: rpcErr } = await supabase.rpc(
-      'get_compliance_health_dashboard_client_v1',
-      {
-        p_client_id: clientId
-      }
+      'get_compliance_health_dashboard_client_v5',
+      { p_client_id: clientId }
     )
-    console.log('compliance health dashboard:', data)
     if (rpcErr) throw rpcErr
     dashboard.value = data
   } catch (e: any) {
-    console.log()
     error.value = e.message || 'Failed to load compliance data.'
   } finally {
     loading.value = false
   }
 }
 
+// ── Realtime ───────────────────────────────────────────────────────────
+const subscribeToChanges = () => {
+  const assessmentId = dashboard.value?.assessment_id
+  if (!assessmentId) return
+
+  realtimeChannel = supabase
+    .channel(`client-dashboard-${assessmentId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'compliance_assessments',
+        filter: `id=eq.${assessmentId}`
+      },
+      () => {
+        liveUpdateBanner.value = true
+        loadDashboard()
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'assessment_module_scores',
+        filter: `assessment_id=eq.${assessmentId}`
+      },
+      () => {
+        liveUpdateBanner.value = true
+        loadDashboard()
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'compliance_gaps',
+        filter: `assessment_id=eq.${assessmentId}`
+      },
+      () => {
+        liveUpdateBanner.value = true
+        loadDashboard()
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'assessment_module_reviews',
+        filter: `assessment_id=eq.${assessmentId}`
+      },
+      () => {
+        liveUpdateBanner.value = true
+        loadDashboard()
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'assessment_evidence_requests',
+        filter: `assessment_id=eq.${assessmentId}`
+      },
+      (payload: any) => {
+        liveUpdateBanner.value = true
+        if (payload.eventType === 'UPDATE' && payload.new?.status === 'requested') {
+          showSnack('New evidence request from your consultant')
+        }
+        loadDashboard()
+      }
+    )
+    .subscribe()
+}
+
+watch(liveUpdateBanner, (val) => {
+  if (val) setTimeout(() => (liveUpdateBanner.value = false), 4000)
+})
+
 onMounted(async () => {
   await authStore.restoreSession()
-
-  console.log('restored user:', authStore.user)
-
   await loadDashboard()
+  subscribeToChanges()
 })
+
+onUnmounted(() => {
+  if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+})
+
+// ── Snackbar ───────────────────────────────────────────────────────────
+const snack = reactive({ show: false, message: '' })
+const showSnack = (message: string) => {
+  snack.message = message
+  snack.show = true
+}
+
+// ── Evidence upload ────────────────────────────────────────────────────
+const uploadEvidence = async (gap: any, file: File) => {
+  if (!file) return
+  uploadingGapId.value = gap.id
+  try {
+    const clientId = authStore.user?.client_id
+    const assessmentId = dashboard.value.assessment_id
+    const path = `${clientId}/${assessmentId}/${gap.question_id}/${Date.now()}_${file.name}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('assessment-evidence')
+      .upload(path, file, { contentType: file.type })
+    if (uploadError) throw uploadError
+
+    const { error: rpcError } = await supabase.rpc('client_submit_evidence', {
+      p_assessment_id: assessmentId,
+      p_question_id: gap.question_id,
+      p_file_path: path,
+      p_file_name: file.name,
+      p_file_size: file.size,
+      p_mime_type: file.type
+    })
+    if (rpcError) throw rpcError
+
+    showSnack('Evidence uploaded')
+    await loadDashboard()
+  } catch (e: any) {
+    showSnack('Upload failed: ' + e.message)
+  } finally {
+    uploadingGapId.value = null
+  }
+}
+
+const evidenceStatusLabel = (status?: string) =>
+  ({
+    requested: 'Evidence requested',
+    submitted: 'Under review',
+    approved: 'Approved',
+    rejected: 'Needs resubmission'
+  })[status ?? ''] || ''
+
+const evidenceStatusClass = (status?: string) =>
+  ({
+    requested: 'gap-ev-requested',
+    submitted: 'gap-ev-submitted',
+    approved: 'gap-ev-approved',
+    rejected: 'gap-ev-rejected'
+  })[status ?? ''] || ''
 
 // ── Derived data ────────────────────────────────────────────────────────
 const hasAssessment = computed(() => dashboard.value?.has_assessment === true)
@@ -56,6 +192,7 @@ const healthRating = computed(() => dashboard.value?.health_rating ?? 'needs_imp
 const moduleScores = computed<any[]>(() => dashboard.value?.module_scores ?? [])
 const gapSummary = computed(() => dashboard.value?.gap_summary ?? {})
 const responseStats = computed(() => dashboard.value?.response_stats ?? {})
+const gaps = computed<any[]>(() => dashboard.value?.gaps ?? [])
 const assessmentStatus = computed(() => dashboard.value?.status ?? 'not_started')
 const assessmentRef = computed(() => dashboard.value?.assessment_ref ?? '')
 
@@ -73,7 +210,6 @@ const ratingConfig: Record<string, { label: string; color: string; bg: string; b
   at_risk: { label: 'At Risk', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
   critical: { label: 'Critical', color: '#991b1b', bg: '#fef2f2', border: '#fca5a5' }
 }
-
 const rating = computed(() => ratingConfig[healthRating.value] ?? ratingConfig.needs_improvement)
 
 const gaugeColor = computed(() => {
@@ -86,7 +222,10 @@ const gaugeColor = computed(() => {
   return '#991b1b'
 })
 
-// ── ApexCharts: Radial overall score ───────────────────────────────────
+const riskColor = (r: string) =>
+  ({ critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#65a30d' })[r] || '#94a3b8'
+
+// (radialOptions, moduleBarOptions, gapDonutOptions, responseDonutOptions, radarOptions — unchanged from before)
 const radialOptions = computed(() => ({
   chart: { type: 'radialBar', sparkline: { enabled: true } },
   plotOptions: {
@@ -120,16 +259,10 @@ const radialOptions = computed(() => ({
   stroke: { lineCap: 'round' },
   labels: ['Health Score']
 }))
-
 const radialSeries = computed(() => [healthScore.value])
 
-// ── ApexCharts: Module horizontal bar ──────────────────────────────────
 const moduleBarOptions = computed(() => ({
-  chart: {
-    type: 'bar',
-    toolbar: { show: false },
-    fontFamily: 'Inter, sans-serif'
-  },
+  chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, sans-serif' },
   plotOptions: {
     bar: {
       horizontal: true,
@@ -164,10 +297,7 @@ const moduleBarOptions = computed(() => ({
     axisTicks: { show: false }
   },
   yaxis: {
-    labels: {
-      style: { fontSize: '12px', fontWeight: 500, colors: '#334155' },
-      maxWidth: 160
-    }
+    labels: { style: { fontSize: '12px', fontWeight: 500, colors: '#334155' }, maxWidth: 160 }
   },
   grid: {
     borderColor: '#f1f5f9',
@@ -175,11 +305,8 @@ const moduleBarOptions = computed(() => ({
     yaxis: { lines: { show: false } }
   },
   legend: { show: false },
-  tooltip: {
-    y: { formatter: (val: number) => `${Math.round(val)}%` }
-  }
+  tooltip: { y: { formatter: (val: number) => `${Math.round(val)}%` } }
 }))
-
 const moduleBarSeries = computed(() => [
   {
     name: 'Compliance Score',
@@ -187,11 +314,11 @@ const moduleBarSeries = computed(() => [
   }
 ])
 
-// ── ApexCharts: Gap donut ───────────────────────────────────────────────
 const gapDonutOptions = computed(() => ({
   chart: { type: 'donut', fontFamily: 'Inter, sans-serif', toolbar: { show: false } },
   labels: ['Critical', 'High', 'Medium', 'Low'],
   colors: ['#dc2626', '#ea580c', '#f59e0b', '#84cc16'],
+  dataLabels: { enabled: false },
   plotOptions: {
     pie: {
       donut: {
@@ -216,7 +343,6 @@ const gapDonutOptions = computed(() => ({
       }
     }
   },
-  dataLabels: { enabled: false },
   legend: {
     position: 'bottom',
     fontSize: '12px',
@@ -226,7 +352,6 @@ const gapDonutOptions = computed(() => ({
   stroke: { width: 2, colors: ['#ffffff'] },
   tooltip: { y: { formatter: (val: number) => `${val} gap${val !== 1 ? 's' : ''}` } }
 }))
-
 const gapDonutSeries = computed(() => [
   gapSummary.value.critical ?? 0,
   gapSummary.value.high ?? 0,
@@ -234,7 +359,6 @@ const gapDonutSeries = computed(() => [
   gapSummary.value.low ?? 0
 ])
 
-// ── ApexCharts: Response breakdown pie ──────────────────────────────────
 const responseDonutOptions = computed(() => ({
   chart: { type: 'donut', fontFamily: 'Inter, sans-serif', toolbar: { show: false } },
   labels: ['Compliant', 'Gaps', 'Not Applicable', 'Unanswered'],
@@ -279,7 +403,6 @@ const responseDonutOptions = computed(() => ({
   stroke: { width: 2, colors: ['#ffffff'] },
   tooltip: { y: { formatter: (val: number) => `${val} question${val !== 1 ? 's' : ''}` } }
 }))
-
 const responseDonutSeries = computed(() => [
   responseStats.value.yes ?? 0,
   responseStats.value.no ?? 0,
@@ -287,7 +410,6 @@ const responseDonutSeries = computed(() => [
   responseStats.value.unanswered ?? 0
 ])
 
-// ── ApexCharts: Module radar ────────────────────────────────────────────
 const radarOptions = computed(() => ({
   chart: { type: 'radar', fontFamily: 'Inter, sans-serif', toolbar: { show: false } },
   xaxis: {
@@ -300,22 +422,13 @@ const radarOptions = computed(() => ({
   stroke: { width: 2, colors: ['#3b82f6'] },
   markers: { size: 4, colors: ['#3b82f6'], strokeColors: '#fff', strokeWidth: 2 },
   plotOptions: {
-    radar: {
-      polygons: {
-        strokeColors: '#e2e8f0',
-        fill: { colors: ['#f8fafc', '#ffffff'] }
-      }
-    }
+    radar: { polygons: { strokeColors: '#e2e8f0', fill: { colors: ['#f8fafc', '#ffffff'] } } }
   },
   tooltip: { y: { formatter: (val: number) => `${Math.round(val)}%` } },
   dataLabels: { enabled: false }
 }))
-
 const radarSeries = computed(() => [
-  {
-    name: 'Score',
-    data: moduleScores.value.map((m: any) => Math.round(m.module_score ?? 0))
-  }
+  { name: 'Score', data: moduleScores.value.map((m: any) => Math.round(m.module_score ?? 0)) }
 ])
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -327,7 +440,6 @@ function formatDate(d: string | null) {
     year: 'numeric'
   })
 }
-
 function moduleRatingLabel(score: number) {
   if (score >= 90) return { label: 'Excellent', color: '#16a34a', bg: '#f0fdf4' }
   if (score >= 75) return { label: 'Healthy', color: '#65a30d', bg: '#f7fee7' }
@@ -335,7 +447,6 @@ function moduleRatingLabel(score: number) {
   if (score >= 45) return { label: 'Needs Work', color: '#ea580c', bg: '#fff7ed' }
   return { label: 'At Risk', color: '#dc2626', bg: '#fef2f2' }
 }
-
 function scoreBarColor(score: number) {
   if (score >= 75) return '#22c55e'
   if (score >= 60) return '#f59e0b'
@@ -347,7 +458,6 @@ async function handleLogout() {
   await authStore.logout()
   window.location.href = '/'
 }
-console.log('assessment ref:', applicationId)
 function goToAssessment() {
   window.open(
     `https://www.kyc.voimacaas.co.uk/#/assessment/new/${applicationId}`,
@@ -430,6 +540,12 @@ function goToAssessment() {
               </v-btn> -->
             </div>
           </div>
+          <transition name="fade">
+            <div v-if="liveUpdateBanner" class="ch-live-banner">
+              <v-icon size="15" color="#2563eb">mdi-sync</v-icon>
+              Your compliance data was just updated by your consultant
+            </div>
+          </transition>
 
           <!-- ── KPI strip ── -->
           <div class="ch-kpi-strip">
@@ -583,6 +699,94 @@ function goToAssessment() {
             </div>
           </div>
 
+          <!-- ── Gaps register with evidence upload ── -->
+          <div class="ch-card mt-6" v-if="gaps.length">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-clipboard-alert-outline" size="16" color="#dc2626" />
+              <span class="ch-card-title">Compliance Gaps</span>
+              <span class="ch-card-sub">{{ gaps.length }} identified</span>
+            </div>
+            <div class="ch-gaps-body">
+              <div
+                v-for="gap in gaps"
+                :key="gap.id"
+                class="gap-row"
+                :style="`border-left-color: ${riskColor(gap.risk_rating)}`"
+              >
+                <div class="gap-row-head">
+                  <span class="gap-ref">{{ gap.gap_ref }}</span>
+                  <span
+                    class="gap-risk-chip"
+                    :style="{
+                      background: riskColor(gap.risk_rating) + '18',
+                      color: riskColor(gap.risk_rating)
+                    }"
+                  >
+                    {{ gap.risk_rating }}
+                  </span>
+                  <span class="gap-module">{{ gap.module_name }}</span>
+                </div>
+                <p class="gap-title">{{ gap.title }}</p>
+                <p class="gap-desc">{{ gap.description }}</p>
+                <div v-if="gap.remediation_action" class="gap-remediation">
+                  <v-icon size="13" color="#7c3aed">mdi-lightbulb-outline</v-icon>
+                  {{ gap.remediation_action }}
+                </div>
+
+                <!-- Evidence request / upload -->
+                <div
+                  v-if="gap.evidence_request"
+                  class="gap-evidence"
+                  :class="evidenceStatusClass(gap.evidence_request.status)"
+                >
+                  <div class="gap-ev-head">
+                    <v-icon size="13">mdi-paperclip</v-icon>
+                    {{ evidenceStatusLabel(gap.evidence_request.status) }}
+                    <span v-if="gap.evidence_request.due_date" class="gap-ev-due">
+                      · due {{ formatDate(gap.evidence_request.due_date) }}
+                    </span>
+                  </div>
+                  <p class="gap-ev-instructions">{{ gap.evidence_request.instructions }}</p>
+                  <p
+                    v-if="
+                      gap.evidence_request.status === 'rejected' &&
+                      gap.evidence_request.review_notes
+                    "
+                    class="gap-ev-rejected-note"
+                  >
+                    <v-icon size="12" color="#dc2626">mdi-alert-circle-outline</v-icon>
+                    {{ gap.evidence_request.review_notes }}
+                  </p>
+
+                  <div v-if="gap.evidence_files?.length" class="gap-ev-files">
+                    <div v-for="f in gap.evidence_files" :key="f.id" class="gap-ev-file">
+                      <v-icon size="12">mdi-file-outline</v-icon>{{ f.file_name }}
+                    </div>
+                  </div>
+
+                  <input
+                    type="file"
+                    :id="`gap-file-${gap.id}`"
+                    style="display: none"
+                    @change="(e: any) => uploadEvidence(gap, e.target.files[0])"
+                  />
+                  <v-btn
+                    v-if="gap.evidence_request.status !== 'approved'"
+                    size="small"
+                    variant="tonal"
+                    color="primary"
+                    class="mt-2"
+                    :loading="uploadingGapId === gap.id"
+                    @click="(document.getElementById(`gap-file-${gap.id}`) as HTMLElement).click()"
+                  >
+                    <v-icon start size="15">mdi-upload</v-icon>
+                    {{ gap.evidence_files?.length ? 'Upload another file' : 'Upload evidence' }}
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ── Row 3: Gap donut + Response donut ── -->
           <div class="ch-grid-2 mt-6">
             <div class="ch-card">
@@ -681,6 +885,10 @@ function goToAssessment() {
                     <td>
                       <div class="ch-mod-name">{{ mod.module_name }}</div>
                       <div class="ch-mod-desc">{{ mod.module_description }}</div>
+                      <div v-if="mod.consultant_note" class="ch-mod-note">
+                        <v-icon size="11" color="#7c3aed">mdi-account-tie-outline</v-icon>
+                        {{ mod.consultant_note }}
+                      </div>
                     </td>
                     <td>
                       <span class="ch-score-num" :style="{ color: scoreBarColor(mod.module_score) }"
@@ -737,6 +945,12 @@ function goToAssessment() {
         </template>
       </main>
     </div>
+    <v-snackbar v-model="snack.show" :timeout="4000" location="bottom right">
+      {{ snack.message }}
+      <template #actions>
+        <v-btn variant="text" @click="snack.show = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </MainLayout>
 </template>
 
@@ -1237,5 +1451,156 @@ function goToAssessment() {
 }
 .mt-4 {
   margin-top: 16px;
+}
+
+.ch-live-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.ch-mod-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 11px;
+  color: #7c3aed;
+  margin-top: 6px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.ch-gaps-body {
+  padding: 8px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gap-row {
+  border-left: 3px solid;
+  background: #fafafa;
+  border-radius: 0 10px 10px 0;
+  padding: 14px 16px;
+}
+.gap-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.gap-ref {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+.gap-risk-chip {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+.gap-module {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-left: auto;
+}
+.gap-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+.gap-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.gap-remediation {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: #6d28d9;
+  margin-bottom: 10px;
+}
+
+.gap-evidence {
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid;
+  margin-top: 8px;
+}
+.gap-ev-requested {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+.gap-ev-submitted {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.gap-ev-approved {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.gap-ev-rejected {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.gap-ev-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.gap-ev-due {
+  font-weight: 400;
+  color: #94a3b8;
+}
+.gap-ev-instructions {
+  font-size: 12px;
+  color: #334155;
+  margin: 0 0 6px;
+}
+.gap-ev-rejected-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #b91c1c;
+  margin: 0 0 6px;
+}
+.gap-ev-files {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.gap-ev-file {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #64748b;
 }
 </style>
