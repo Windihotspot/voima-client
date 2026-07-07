@@ -14,6 +14,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const dashboard = ref<any>(null)
 const applicationId = authStore.user?.application_id
+console.log('application id:', applicationId)
 const liveUpdateBanner = ref(false)
 const uploadingGapId = ref<string | null>(null)
 let realtimeChannel: any = null
@@ -460,7 +461,7 @@ async function handleLogout() {
 }
 function goToAssessment() {
   window.open(
-    `https://www.kyc.voimacaas.co.uk/#/assessment/new/${applicationId}`,
+    `https://www.kyc.voimacaas.co.uk/assessment/new/${applicationId}`,
     '_blank',
     'noopener,noreferrer'
   )
@@ -565,7 +566,7 @@ const triggerFileInput = (id: string) => {
                 <span class="ch-status-dot" :style="{ background: rating.color }" />
                 {{ rating.label }}
               </div>
-              <!-- <v-btn
+              <v-btn
                 v-if="assessmentStatus !== 'completed'"
                 class="ch-btn-primary"
                 elevation="0"
@@ -574,7 +575,7 @@ const triggerFileInput = (id: string) => {
               >
                 <v-icon start size="15">mdi-pencil-outline</v-icon>
                 Continue assessment
-              </v-btn> -->
+              </v-btn>
             </div>
           </div>
           <transition name="fade">
