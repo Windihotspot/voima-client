@@ -15,6 +15,13 @@ onMounted(() => {
 
 <template>
   <v-app>
+    <div>
+      <v-icon
+        class="fixed top-4 left-4 z-[2100] text-blue md:hidden mb-6"
+        @click="drawer = !drawer"
+        icon="mdi-menu"
+      />
+    </div>
     <!--- Header -->
     <!-- ---------------------------------------------- -->
     <!-- <v-app-bar app elevation="1" class="pa-2">
@@ -47,13 +54,7 @@ onMounted(() => {
     <!-- ---------------------------------------------- -->
     <!--- Page Wrapper -->
     <!-- 🔥 Floating Menu Button (Mobile Only) -->
-    <div>
-      <v-icon
-        class="fixed top-4 left-4 z-[2100] text-blue md:hidden"
-        @click="drawer = !drawer"
-        icon="mdi-menu"
-      />
-    </div>
+
     <!-- ---------------------------------------------- -->
     <v-main class="page-wrapper">
       <v-container fluid class="page-wrapper bg-blue-30">
@@ -66,11 +67,9 @@ onMounted(() => {
 <style scoped>
 .side-bar {
   z-index: 2000 !important;
-  background: var(--primary);
 }
 .side-bar {
   overflow: hidden !important;
-  background: var(--primary);
 }
 
 .side-bar::-webkit-scrollbar {
