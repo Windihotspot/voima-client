@@ -3,19 +3,8 @@ import { onMounted, onUnmounted, computed, ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import VueApexCharts from 'vue3-apexcharts'
 import { supabase } from '@/services/supabase'
-import MainLayout from '@/components/Layouts/MainLayout.vue'
-import { useApplicantPortal } from '@/composables/useApplicationPortal'
 import { useApplicantAuthStore } from '@/stores/applicationAuth'
-const {
-  application,
-  documents,
-  directors,
-
-  fetchMyApplication,
-  getDocumentDownloadUrl
-} = useApplicantPortal()
-
-onMounted(fetchMyApplication)
+import MainLayout from '@/components/Layouts/MainLayout.vue'
 
 const router = useRouter()
 const authStore = useApplicantAuthStore()
@@ -525,7 +514,7 @@ const triggerFileInput = (id: string) => {
         <div class="ch-topbar-inner">
           <div class="ch-brand">
             <v-icon icon="mdi-shield-check" size="22" color="#2563eb" />
-            <span>Voima Command Center</span>
+            <span>Voima Compliance Portal</span>
           </div>
           <v-btn variant="text" size="small" class="ch-logout" @click="handleLogout">
             <v-icon start icon="mdi-logout" size="15" />
@@ -563,15 +552,11 @@ const triggerFileInput = (id: string) => {
           <!-- ── Page heading ── -->
           <div class="ch-page-head">
             <div class="ch-page-head-left">
-              <div class="ch-page-eyebrow">Dashboard</div>
-              <h1 class="ch-page-title">{{ application?.company_name }}</h1>
-              <!-- <p class="ch-page-sub">
+              <div class="ch-page-eyebrow">Compliance Health Dashboard</div>
+              <h1 class="ch-page-title">Your Compliance Overview</h1>
+              <p class="ch-page-sub">
                 Assessment <strong>{{ assessmentRef }}</strong> · Last updated
                 {{ formatDate(dashboard?.updated_at) }}
-              </p> -->
-              <p class="ch-page-sub">
-                {{ application?.contact_email }} - {{ application?.contact_full_name }} -
-                {{ application?.contact_phone }}
               </p>
             </div>
             <div class="ch-page-head-right">
@@ -600,68 +585,6 @@ const triggerFileInput = (id: string) => {
               Your compliance data was just updated by your consultant
             </div>
           </transition>
-
-          <!-- ── KPI strip ── -->
-          <div class="ch-kpi-strip">
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #eff6ff">
-                <v-icon icon="mdi-shield-half-full" size="20" color="#2563eb" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" :style="{ color: gaugeColor }">{{ healthScore }}%</div>
-                <div class="ch-kpi-label">Health Score</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #fef2f2">
-                <v-icon icon="mdi-alert-circle-outline" size="20" color="#dc2626" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #dc2626">{{ gapSummary.open ?? 0 }}</div>
-                <div class="ch-kpi-label">Open Gaps</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #fff7ed">
-                <v-icon icon="mdi-fire-alert" size="20" color="#ea580c" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #ea580c">
-                  {{ gapSummary.critical ?? 0 }}
-                </div>
-                <div class="ch-kpi-label">Critical Gaps</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #f0fdf4">
-                <v-icon icon="mdi-check-circle-outline" size="20" color="#16a34a" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #16a34a">{{ responseStats.yes ?? 0 }}</div>
-                <div class="ch-kpi-label">Compliant</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #f8fafc">
-                <v-icon icon="mdi-help-circle-outline" size="20" color="#64748b" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #64748b">
-                  {{ responseStats.unanswered ?? 0 }}
-                </div>
-                <div class="ch-kpi-label">Unanswered</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #f8fafc">
-                <v-icon icon="mdi-format-list-bulleted" size="20" color="#64748b" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #334155">{{ moduleScores.length }}</div>
-                <div class="ch-kpi-label">Modules</div>
-              </div>
-            </div>
-          </div>
 
           <!-- ── Row 1: Gauge + Radar ── -->
           <div class="ch-grid-2 mt-6">
@@ -714,79 +637,328 @@ const triggerFileInput = (id: string) => {
                 </div>
               </div>
             </div>
-            <div class="ch-grid-2 mt-6">
-              <div class="ch-card">
-                <div class="ch-card-head">
-                  <v-icon icon="mdi-alert-decagram-outline" size="16" color="#dc2626" />
-                  <span class="ch-card-title">Gap Breakdown</span>
-                  <span class="ch-card-sub">By severity</span>
-                </div>
-                <div class="ch-card-body">
-                  <VueApexCharts
-                    type="donut"
-                    height="260"
-                    :options="gapDonutOptions"
-                    :series="gapDonutSeries"
-                  />
-                  <!-- Gap summary pills -->
-                  <div class="ch-gap-pills">
-                    <div class="ch-gap-pill critical">
-                      <span class="ch-gap-pill-val">{{ gapSummary.critical ?? 0 }}</span>
-                      <span>Critical</span>
-                    </div>
-                    <div class="ch-gap-pill high">
-                      <span class="ch-gap-pill-val">{{ gapSummary.high ?? 0 }}</span>
-                      <span>High</span>
-                    </div>
-                    <div class="ch-gap-pill medium">
-                      <span class="ch-gap-pill-val">{{ gapSummary.medium ?? 0 }}</span>
-                      <span>Medium</span>
-                    </div>
-                    <div class="ch-gap-pill low">
-                      <span class="ch-gap-pill-val">{{ gapSummary.low ?? 0 }}</span>
-                      <span>Low</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              <div class="ch-card">
-                <div class="ch-card-head">
-                  <v-icon icon="mdi-chart-pie-outline" size="16" color="#2563eb" />
-                  <span class="ch-card-title">Response Breakdown</span>
-                  <span class="ch-card-sub">Across all questions</span>
+            <!-- Radar -->
+            <div class="ch-card">
+              <div class="ch-card-head">
+                <v-icon icon="mdi-radar" size="16" color="#2563eb" />
+                <span class="ch-card-title">Module Coverage Radar</span>
+              </div>
+              <div class="ch-card-body">
+                <VueApexCharts
+                  v-if="moduleScores.length"
+                  type="radar"
+                  height="300"
+                  :options="radarOptions"
+                  :series="radarSeries"
+                />
+                <div v-else class="ch-chart-empty">No module data yet</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Row 2: Module horizontal bar (full width) ── -->
+          <div class="ch-card mt-6">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-view-list-outline" size="16" color="#2563eb" />
+              <span class="ch-card-title">Score by Module</span>
+              <span class="ch-card-sub">Each bar shows the compliance score for that module</span>
+            </div>
+            <div class="ch-card-body">
+              <VueApexCharts
+                v-if="moduleScores.length"
+                type="bar"
+                :height="Math.max(280, moduleScores.length * 46)"
+                :options="moduleBarOptions"
+                :series="moduleBarSeries"
+              />
+              <div v-else class="ch-chart-empty">No module scores available yet</div>
+            </div>
+          </div>
+
+          <!-- ── Gaps register with evidence upload ── -->
+          <div class="ch-card mt-6" v-if="gaps.length">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-clipboard-alert-outline" size="16" color="#dc2626" />
+              <span class="ch-card-title">Compliance Gaps</span>
+              <span class="ch-card-sub">{{ gaps.length }} identified</span>
+            </div>
+            <div class="ch-gaps-body">
+              <div
+                v-for="gap in gaps"
+                :key="gap.id"
+                class="gap-row"
+                :style="`border-left-color: ${riskColor(gap.risk_rating)}`"
+              >
+                <div class="gap-row-head">
+                  <span class="gap-ref">{{ gap.gap_ref }}</span>
+                  <span
+                    class="gap-risk-chip"
+                    :style="{
+                      background: riskColor(gap.risk_rating) + '18',
+                      color: riskColor(gap.risk_rating)
+                    }"
+                  >
+                    {{ gap.risk_rating }}
+                  </span>
+                  <span class="gap-module">{{ gap.module_name }}</span>
                 </div>
-                <div class="ch-card-body">
-                  <VueApexCharts
-                    type="donut"
-                    height="260"
-                    :options="responseDonutOptions"
-                    :series="responseDonutSeries"
+                <p class="gap-title">{{ gap.title }}</p>
+                <p class="gap-desc">{{ gap.description }}</p>
+                <div v-if="gap.remediation_action" class="gap-remediation">
+                  <v-icon size="13" color="#7c3aed">mdi-lightbulb-outline</v-icon>
+                  {{ gap.remediation_action }}
+                </div>
+
+                <!-- Evidence request / upload -->
+                <div
+                  v-if="gap.evidence_request"
+                  class="gap-evidence"
+                  :class="evidenceStatusClass(gap.evidence_request.status)"
+                >
+                  <div class="gap-ev-head">
+                    <v-icon size="13">mdi-paperclip</v-icon>
+                    {{ evidenceStatusLabel(gap.evidence_request.status) }}
+                    <span v-if="gap.evidence_request.due_date" class="gap-ev-due">
+                      · due {{ formatDate(gap.evidence_request.due_date) }}
+                    </span>
+                  </div>
+                  <p class="gap-ev-instructions">{{ gap.evidence_request.instructions }}</p>
+                  <p
+                    v-if="
+                      gap.evidence_request.status === 'rejected' &&
+                      gap.evidence_request.review_notes
+                    "
+                    class="gap-ev-rejected-note"
+                  >
+                    <v-icon size="12" color="#dc2626">mdi-alert-circle-outline</v-icon>
+                    {{ gap.evidence_request.review_notes }}
+                  </p>
+
+                  <div v-if="gap.evidence_files?.length" class="gap-ev-files">
+                    <div v-for="f in gap.evidence_files" :key="f.id" class="gap-ev-file">
+                      <v-icon size="12">mdi-file-outline</v-icon>{{ f.file_name }}
+                    </div>
+                  </div>
+
+                  <input
+                    type="file"
+                    :id="`gap-file-${gap.id}`"
+                    style="display: none"
+                    @change="(e: any) => uploadEvidence(gap, e.target.files[0])"
                   />
-                  <div class="ch-resp-stats">
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #22c55e" />
-                      <span class="ch-resp-label">Compliant</span>
-                      <span class="ch-resp-val">{{ responseStats.yes ?? 0 }}</span>
-                    </div>
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #ef4444" />
-                      <span class="ch-resp-label">Gaps</span>
-                      <span class="ch-resp-val">{{ responseStats.no ?? 0 }}</span>
-                    </div>
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #94a3b8" />
-                      <span class="ch-resp-label">N/A</span>
-                      <span class="ch-resp-val">{{ responseStats.na ?? 0 }}</span>
-                    </div>
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #e2e8f0" />
-                      <span class="ch-resp-label">Unanswered</span>
-                      <span class="ch-resp-val">{{ responseStats.unanswered ?? 0 }}</span>
-                    </div>
+                  <v-btn
+                    v-if="gap.evidence_request.status !== 'approved'"
+                    size="small"
+                    variant="tonal"
+                    color="primary"
+                    class="mt-2"
+                    :loading="uploadingGapId === gap.id"
+                    @click="triggerFileInput(`gap-file-${gap.id}`)"
+                  >
+                    <v-icon start size="15">mdi-upload</v-icon>
+                    {{ gap.evidence_files?.length ? 'Upload another file' : 'Upload evidence' }}
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ch-card mt-6" v-if="evidenceRequests.length">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-paperclip" size="16" color="#2563eb" />
+              <span class="ch-card-title">Evidence Requests</span>
+              <span class="ch-card-sub">{{ evidenceRequests.length }} from your consultant</span>
+            </div>
+            <div class="ch-gaps-body">
+              <div
+                v-for="req in evidenceRequests"
+                :key="req.id"
+                class="gap-evidence"
+                :class="evidenceStatusClass(req.status)"
+              >
+                <div class="gap-ev-head">
+                  <v-icon size="13">mdi-paperclip</v-icon>
+                  {{ evidenceStatusLabel(req.status) }}
+                  <span class="gap-ev-due" v-if="req.due_date">
+                    · due {{ formatDate(req.due_date) }}
+                  </span>
+                </div>
+                <p class="gap-ev-instructions">
+                  <strong>{{ req.question_ref }}</strong> — {{ req.question_text }}
+                </p>
+                <p class="gap-ev-instructions">{{ req.instructions }}</p>
+                <p
+                  v-if="req.status === 'rejected' && req.review_notes"
+                  class="gap-ev-rejected-note"
+                >
+                  <v-icon size="12" color="#dc2626">mdi-alert-circle-outline</v-icon>
+                  {{ req.review_notes }}
+                </p>
+
+                <div v-if="req.evidence_files?.length" class="gap-ev-files">
+                  <div v-for="f in req.evidence_files" :key="f.id" class="gap-ev-file">
+                    <v-icon size="12">mdi-file-outline</v-icon>{{ f.file_name }}
+                  </div>
+                </div>
+
+                <input
+                  type="file"
+                  :id="`req-file-${req.id}`"
+                  style="display: none"
+                  @change="(e: any) => uploadEvidenceForRequest(req, e.target.files[0])"
+                />
+                <v-btn
+                  v-if="req.status !== 'approved'"
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  class="mt-2"
+                  :loading="uploadingGapId === req.id"
+                  @click="triggerFileInput(`req-file-${req.id}`)"
+                >
+                  <v-icon start size="15">mdi-upload</v-icon>
+                  {{ req.evidence_files?.length ? 'Upload another file' : 'Upload evidence' }}
+                </v-btn>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Row 3: Gap donut + Response donut ── -->
+          <div class="ch-grid-2 mt-6">
+            <div class="ch-card">
+              <div class="ch-card-head">
+                <v-icon icon="mdi-alert-decagram-outline" size="16" color="#dc2626" />
+                <span class="ch-card-title">Gap Breakdown</span>
+                <span class="ch-card-sub">By severity</span>
+              </div>
+              <div class="ch-card-body">
+                <VueApexCharts
+                  type="donut"
+                  height="260"
+                  :options="gapDonutOptions"
+                  :series="gapDonutSeries"
+                />
+                <!-- Gap summary pills -->
+                <div class="ch-gap-pills">
+                  <div class="ch-gap-pill critical">
+                    <span class="ch-gap-pill-val">{{ gapSummary.critical ?? 0 }}</span>
+                    <span>Critical</span>
+                  </div>
+                  <div class="ch-gap-pill high">
+                    <span class="ch-gap-pill-val">{{ gapSummary.high ?? 0 }}</span>
+                    <span>High</span>
+                  </div>
+                  <div class="ch-gap-pill medium">
+                    <span class="ch-gap-pill-val">{{ gapSummary.medium ?? 0 }}</span>
+                    <span>Medium</span>
+                  </div>
+                  <div class="ch-gap-pill low">
+                    <span class="ch-gap-pill-val">{{ gapSummary.low ?? 0 }}</span>
+                    <span>Low</span>
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div class="ch-card">
+              <div class="ch-card-head">
+                <v-icon icon="mdi-chart-pie-outline" size="16" color="#2563eb" />
+                <span class="ch-card-title">Response Breakdown</span>
+                <span class="ch-card-sub">Across all questions</span>
+              </div>
+              <div class="ch-card-body">
+                <VueApexCharts
+                  type="donut"
+                  height="260"
+                  :options="responseDonutOptions"
+                  :series="responseDonutSeries"
+                />
+                <div class="ch-resp-stats">
+                  <div class="ch-resp-stat">
+                    <span class="ch-resp-dot" style="background: #22c55e" />
+                    <span class="ch-resp-label">Compliant</span>
+                    <span class="ch-resp-val">{{ responseStats.yes ?? 0 }}</span>
+                  </div>
+                  <div class="ch-resp-stat">
+                    <span class="ch-resp-dot" style="background: #ef4444" />
+                    <span class="ch-resp-label">Gaps</span>
+                    <span class="ch-resp-val">{{ responseStats.no ?? 0 }}</span>
+                  </div>
+                  <div class="ch-resp-stat">
+                    <span class="ch-resp-dot" style="background: #94a3b8" />
+                    <span class="ch-resp-label">N/A</span>
+                    <span class="ch-resp-val">{{ responseStats.na ?? 0 }}</span>
+                  </div>
+                  <div class="ch-resp-stat">
+                    <span class="ch-resp-dot" style="background: #e2e8f0" />
+                    <span class="ch-resp-label">Unanswered</span>
+                    <span class="ch-resp-val">{{ responseStats.unanswered ?? 0 }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Row 4: Module score table ── -->
+          <div class="ch-card mt-6">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-table-check" size="16" color="#2563eb" />
+              <span class="ch-card-title">Module Detail</span>
+              <span class="ch-card-sub">Scores for each compliance module</span>
+            </div>
+            <div class="ch-table-wrap">
+              <table class="ch-table">
+                <thead>
+                  <tr>
+                    <th>Module</th>
+                    <th>Score</th>
+                    <th class="ch-th-bar">Progress</th>
+                    <th>Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="mod in moduleScores" :key="mod.module_id">
+                    <td>
+                      <div class="ch-mod-name">{{ mod.module_name }}</div>
+                      <div class="ch-mod-desc">{{ mod.module_description }}</div>
+                      <div v-if="mod.consultant_note" class="ch-mod-note">
+                        <v-icon size="11" color="#7c3aed">mdi-account-tie-outline</v-icon>
+                        {{ mod.consultant_note }}
+                      </div>
+                    </td>
+                    <td>
+                      <span class="ch-score-num" :style="{ color: scoreBarColor(mod.module_score) }"
+                        >{{ Math.round(mod.module_score ?? 0) }}%</span
+                      >
+                    </td>
+                    <td class="ch-td-bar">
+                      <div class="ch-bar-track">
+                        <div
+                          class="ch-bar-fill"
+                          :style="{
+                            width: Math.round(mod.module_score ?? 0) + '%',
+                            background: scoreBarColor(mod.module_score)
+                          }"
+                        />
+                      </div>
+                    </td>
+                    <!-- <td>
+                      <span class="ch-weight-pill">{{ mod.weight ?? 0 }}%</span>
+                    </td> -->
+                    <td>
+                      <span
+                        class="ch-mod-rating"
+                        :style="{
+                          background: moduleRatingLabel(mod.module_score).bg,
+                          color: moduleRatingLabel(mod.module_score).color
+                        }"
+                        >{{ moduleRatingLabel(mod.module_score).label }}</span
+                      >
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

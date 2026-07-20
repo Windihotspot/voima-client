@@ -72,12 +72,14 @@ const menuItems = [
   {
     nav: 'risk',
     label: 'Risk Assessment',
-    icon: 'mdi mdi-alert-outline'
+    icon: 'mdi mdi-alert-outline',
+    route: '/risks'
   },
   {
     nav: 'gap',
     label: 'Gap Analysis',
-    icon: 'mdi mdi-chart-box-outline'
+    icon: 'mdi mdi-chart-box-outline',
+    route: '/gaps'
   },
   {
     nav: 'documents',

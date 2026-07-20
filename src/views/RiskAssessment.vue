@@ -3,19 +3,8 @@ import { onMounted, onUnmounted, computed, ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import VueApexCharts from 'vue3-apexcharts'
 import { supabase } from '@/services/supabase'
-import MainLayout from '@/components/Layouts/MainLayout.vue'
-import { useApplicantPortal } from '@/composables/useApplicationPortal'
 import { useApplicantAuthStore } from '@/stores/applicationAuth'
-const {
-  application,
-  documents,
-  directors,
-
-  fetchMyApplication,
-  getDocumentDownloadUrl
-} = useApplicantPortal()
-
-onMounted(fetchMyApplication)
+import MainLayout from '@/components/Layouts/MainLayout.vue'
 
 const router = useRouter()
 const authStore = useApplicantAuthStore()
@@ -538,7 +527,7 @@ const triggerFileInput = (id: string) => {
         <!-- Loading -->
         <div v-if="loading" class="ch-loader">
           <v-progress-circular indeterminate color="#2563eb" size="40" width="3" />
-          <p>Loading compliance data…</p>
+          <p>Loading risk assessment data…</p>
         </div>
 
         <!-- Error -->
@@ -563,16 +552,7 @@ const triggerFileInput = (id: string) => {
           <!-- ── Page heading ── -->
           <div class="ch-page-head">
             <div class="ch-page-head-left">
-              <div class="ch-page-eyebrow">Dashboard</div>
-              <h1 class="ch-page-title">{{ application?.company_name }}</h1>
-              <!-- <p class="ch-page-sub">
-                Assessment <strong>{{ assessmentRef }}</strong> · Last updated
-                {{ formatDate(dashboard?.updated_at) }}
-              </p> -->
-              <p class="ch-page-sub">
-                {{ application?.contact_email }} - {{ application?.contact_full_name }} -
-                {{ application?.contact_phone }}
-              </p>
+              <div class="ch-page-eyebrow">Risk Assessment</div>
             </div>
             <div class="ch-page-head-right">
               <div
@@ -601,192 +581,84 @@ const triggerFileInput = (id: string) => {
             </div>
           </transition>
 
-          <!-- ── KPI strip ── -->
-          <div class="ch-kpi-strip">
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #eff6ff">
-                <v-icon icon="mdi-shield-half-full" size="20" color="#2563eb" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" :style="{ color: gaugeColor }">{{ healthScore }}%</div>
-                <div class="ch-kpi-label">Health Score</div>
-              </div>
+          <!-- ── Row 2: Module horizontal bar (full width) ── -->
+          <div class="ch-card mt-6">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-view-list-outline" size="16" color="#2563eb" />
+              <span class="ch-card-title">Score by Module</span>
+              <span class="ch-card-sub">Each bar shows the compliance score for that module</span>
             </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #fef2f2">
-                <v-icon icon="mdi-alert-circle-outline" size="20" color="#dc2626" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #dc2626">{{ gapSummary.open ?? 0 }}</div>
-                <div class="ch-kpi-label">Open Gaps</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #fff7ed">
-                <v-icon icon="mdi-fire-alert" size="20" color="#ea580c" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #ea580c">
-                  {{ gapSummary.critical ?? 0 }}
-                </div>
-                <div class="ch-kpi-label">Critical Gaps</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #f0fdf4">
-                <v-icon icon="mdi-check-circle-outline" size="20" color="#16a34a" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #16a34a">{{ responseStats.yes ?? 0 }}</div>
-                <div class="ch-kpi-label">Compliant</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #f8fafc">
-                <v-icon icon="mdi-help-circle-outline" size="20" color="#64748b" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #64748b">
-                  {{ responseStats.unanswered ?? 0 }}
-                </div>
-                <div class="ch-kpi-label">Unanswered</div>
-              </div>
-            </div>
-            <div class="ch-kpi-card">
-              <div class="ch-kpi-icon" style="background: #f8fafc">
-                <v-icon icon="mdi-format-list-bulleted" size="20" color="#64748b" />
-              </div>
-              <div>
-                <div class="ch-kpi-value" style="color: #334155">{{ moduleScores.length }}</div>
-                <div class="ch-kpi-label">Modules</div>
-              </div>
+            <div class="ch-card-body">
+              <VueApexCharts
+                v-if="moduleScores.length"
+                type="bar"
+                :height="Math.max(280, moduleScores.length * 46)"
+                :options="moduleBarOptions"
+                :series="moduleBarSeries"
+              />
+              <div v-else class="ch-chart-empty">No module scores available yet</div>
             </div>
           </div>
 
-          <!-- ── Row 1: Gauge + Radar ── -->
-          <div class="ch-grid-2 mt-6">
-            <!-- Overall score card -->
-            <div class="ch-card">
-              <div class="ch-card-head">
-                <v-icon icon="mdi-gauge" size="16" color="#2563eb" />
-                <span class="ch-card-title">Overall Compliance Score</span>
-              </div>
-              <div class="ch-card-body ch-gauge-body">
-                <VueApexCharts
-                  type="radialBar"
-                  height="280"
-                  :options="radialOptions"
-                  :series="radialSeries"
-                />
-                <div class="ch-gauge-meta">
-                  <div
-                    class="ch-rating-badge"
-                    :style="{
-                      background: rating.bg,
-                      color: rating.color,
-                      borderColor: rating.border
-                    }"
-                  >
-                    {{ rating.label }}
-                  </div>
-                  <p class="ch-gauge-hint">
-                    Based on {{ moduleScores.length }} compliance modules weighted by risk category
-                  </p>
-                </div>
-
-                <!-- Rating scale -->
-                <div class="ch-scale">
-                  <div
-                    class="ch-scale-item"
-                    v-for="r in [
-                      { range: '90–100', label: 'Excellent', color: '#16a34a' },
-                      { range: '75–89', label: 'Healthy', color: '#65a30d' },
-                      { range: '60–74', label: 'Satisfactory', color: '#d97706' },
-                      { range: '45–59', label: 'Needs Work', color: '#ea580c' },
-                      { range: '<45', label: 'At Risk', color: '#dc2626' }
-                    ]"
-                    :key="r.label"
-                  >
-                    <span class="ch-scale-dot" :style="{ background: r.color }" />
-                    <span class="ch-scale-range">{{ r.range }}</span>
-                    <span class="ch-scale-label">{{ r.label }}</span>
-                  </div>
-                </div>
-              </div>
+          <!-- ── Row 4: Module score table ── -->
+          <div class="ch-card mt-6">
+            <div class="ch-card-head">
+              <v-icon icon="mdi-table-check" size="16" color="#2563eb" />
+              <span class="ch-card-title">Module Detail</span>
+              <span class="ch-card-sub">Scores for each compliance module</span>
             </div>
-            <div class="ch-grid-2 mt-6">
-              <div class="ch-card">
-                <div class="ch-card-head">
-                  <v-icon icon="mdi-alert-decagram-outline" size="16" color="#dc2626" />
-                  <span class="ch-card-title">Gap Breakdown</span>
-                  <span class="ch-card-sub">By severity</span>
-                </div>
-                <div class="ch-card-body">
-                  <VueApexCharts
-                    type="donut"
-                    height="260"
-                    :options="gapDonutOptions"
-                    :series="gapDonutSeries"
-                  />
-                  <!-- Gap summary pills -->
-                  <div class="ch-gap-pills">
-                    <div class="ch-gap-pill critical">
-                      <span class="ch-gap-pill-val">{{ gapSummary.critical ?? 0 }}</span>
-                      <span>Critical</span>
-                    </div>
-                    <div class="ch-gap-pill high">
-                      <span class="ch-gap-pill-val">{{ gapSummary.high ?? 0 }}</span>
-                      <span>High</span>
-                    </div>
-                    <div class="ch-gap-pill medium">
-                      <span class="ch-gap-pill-val">{{ gapSummary.medium ?? 0 }}</span>
-                      <span>Medium</span>
-                    </div>
-                    <div class="ch-gap-pill low">
-                      <span class="ch-gap-pill-val">{{ gapSummary.low ?? 0 }}</span>
-                      <span>Low</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="ch-card">
-                <div class="ch-card-head">
-                  <v-icon icon="mdi-chart-pie-outline" size="16" color="#2563eb" />
-                  <span class="ch-card-title">Response Breakdown</span>
-                  <span class="ch-card-sub">Across all questions</span>
-                </div>
-                <div class="ch-card-body">
-                  <VueApexCharts
-                    type="donut"
-                    height="260"
-                    :options="responseDonutOptions"
-                    :series="responseDonutSeries"
-                  />
-                  <div class="ch-resp-stats">
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #22c55e" />
-                      <span class="ch-resp-label">Compliant</span>
-                      <span class="ch-resp-val">{{ responseStats.yes ?? 0 }}</span>
-                    </div>
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #ef4444" />
-                      <span class="ch-resp-label">Gaps</span>
-                      <span class="ch-resp-val">{{ responseStats.no ?? 0 }}</span>
-                    </div>
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #94a3b8" />
-                      <span class="ch-resp-label">N/A</span>
-                      <span class="ch-resp-val">{{ responseStats.na ?? 0 }}</span>
-                    </div>
-                    <div class="ch-resp-stat">
-                      <span class="ch-resp-dot" style="background: #e2e8f0" />
-                      <span class="ch-resp-label">Unanswered</span>
-                      <span class="ch-resp-val">{{ responseStats.unanswered ?? 0 }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div class="ch-table-wrap">
+              <table class="ch-table">
+                <thead>
+                  <tr>
+                    <th>Module</th>
+                    <th>Score</th>
+                    <th class="ch-th-bar">Progress</th>
+                    <th>Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="mod in moduleScores" :key="mod.module_id">
+                    <td>
+                      <div class="ch-mod-name">{{ mod.module_name }}</div>
+                      <div class="ch-mod-desc">{{ mod.module_description }}</div>
+                      <div v-if="mod.consultant_note" class="ch-mod-note">
+                        <v-icon size="11" color="#7c3aed">mdi-account-tie-outline</v-icon>
+                        {{ mod.consultant_note }}
+                      </div>
+                    </td>
+                    <td>
+                      <span class="ch-score-num" :style="{ color: scoreBarColor(mod.module_score) }"
+                        >{{ Math.round(mod.module_score ?? 0) }}%</span
+                      >
+                    </td>
+                    <td class="ch-td-bar">
+                      <div class="ch-bar-track">
+                        <div
+                          class="ch-bar-fill"
+                          :style="{
+                            width: Math.round(mod.module_score ?? 0) + '%',
+                            background: scoreBarColor(mod.module_score)
+                          }"
+                        />
+                      </div>
+                    </td>
+                    <!-- <td>
+                      <span class="ch-weight-pill">{{ mod.weight ?? 0 }}%</span>
+                    </td> -->
+                    <td>
+                      <span
+                        class="ch-mod-rating"
+                        :style="{
+                          background: moduleRatingLabel(mod.module_score).bg,
+                          color: moduleRatingLabel(mod.module_score).color
+                        }"
+                        >{{ moduleRatingLabel(mod.module_score).label }}</span
+                      >
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
