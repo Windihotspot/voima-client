@@ -270,8 +270,8 @@ const accountItems = [
 }
 
 .wa-icon {
-  background: rgba(37, 99, 235, 0.15);
-  color: #2563eb;
+  background: rgba(135, 240, 205, 0.15);
+  color: green;
 }
 
 .mail-icon {

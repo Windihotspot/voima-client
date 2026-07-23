@@ -20,7 +20,7 @@ export const useApplicantAuthStore = defineStore('applicantAuth', {
   getters: {
     isAuthenticated: (state) => !!state.user
   },
-
+ 
   actions: {
     async login(email: string, phone: string) {
       this.loading = true
