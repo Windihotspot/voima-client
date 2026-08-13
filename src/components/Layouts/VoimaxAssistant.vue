@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { supabase } from '@/services/supabase'
 
 const props = defineProps({
@@ -12,18 +12,89 @@ const inputText = ref('')
 const messagesEl = ref(null)
 const messages = ref([]) // { role: 'user'|'assistant', content: string }
 
-const quickPrompts = [
-  { label: 'Explain this question', text: 'Can you explain what this question is really asking?' },
-  {
-    label: 'Why does this matter?',
-    text: 'Why is this question important for a company like mine?'
-  },
-  {
-    label: 'What evidence do I need?',
-    text: 'What evidence would I need to support a "Yes" answer here?'
-  },
-  { label: 'What if I answer No?', text: 'What happens if I answer "No" to this question?' }
-]
+// ── Context type detection ────────────────────────────────────────────
+// 'question'  → user is looking at a single assessment question
+// 'dashboard' → user is looking at their compliance dashboard / gap analysis
+// 'generic'   → no recognizable context, fall back to a neutral assistant
+const contextType = computed(() => {
+  const ctx = props.context || {}
+  if (ctx.question_ref) return 'question'
+  if (ctx.health_score !== undefined || ctx.module_scores || ctx.gap_summary || ctx.assessment_ref)
+    return 'dashboard'
+  return 'generic'
+})
+
+// ── Per-context copy ───────────────────────────────────────────────────
+const headerTitle = 'VoimaX Assistant'
+
+const headerSubtitle = computed(() => {
+  const ctx = props.context || {}
+  if (contextType.value === 'question') {
+    return ctx.question_ref ? `On ${ctx.question_ref}` : 'Compliance guidance'
+  }
+  if (contextType.value === 'dashboard') {
+    return ctx.company_name ? `${ctx.company_name} · Dashboard` : 'Dashboard guidance'
+  }
+  return 'Compliance guidance'
+})
+
+const emptyStateHeading = computed(() => {
+  if (contextType.value === 'question') return 'Stuck on this question?'
+  if (contextType.value === 'dashboard') return 'Need a hand with your results?'
+  return 'How can I help?'
+})
+
+const emptyStateBody = computed(() => {
+  const ctx = props.context || {}
+  if (contextType.value === 'question') {
+    return `Ask me anything about ${ctx.question_ref || 'this assessment'} — I'll help you figure out the right answer.`
+  }
+  if (contextType.value === 'dashboard') {
+    return `Ask me about your health score, gaps, or what to prioritize next${
+      ctx.company_name ? ` for ${ctx.company_name}` : ''
+    }.`
+  }
+  return "Ask me anything about your compliance assessment — I'm here to help."
+})
+
+const quickPromptsByType = {
+  question: [
+    { label: 'Explain this question', text: 'Can you explain what this question is really asking?' },
+    {
+      label: 'Why does this matter?',
+      text: 'Why is this question important for a company like mine?'
+    },
+    {
+      label: 'What evidence do I need?',
+      text: 'What evidence would I need to support a "Yes" answer here?'
+    },
+    { label: 'What if I answer No?', text: 'What happens if I answer "No" to this question?' }
+  ],
+  dashboard: [
+    {
+      label: 'Summarize my risks',
+      text: 'Can you summarize my biggest compliance risks right now?'
+    },
+    {
+      label: 'What should I prioritize?',
+      text: 'Based on my gaps, what should I prioritize first?'
+    },
+    {
+      label: 'Explain my health score',
+      text: 'Can you explain what my health score means and how it was calculated?'
+    },
+    {
+      label: 'Help with critical gaps',
+      text: 'Walk me through my critical gaps and what evidence I need to close them.'
+    }
+  ],
+  generic: [
+    { label: 'What is this assessment?', text: 'Can you explain what this compliance assessment covers?' },
+    { label: 'How does scoring work?', text: 'How is my compliance health score calculated?' }
+  ]
+}
+
+const quickPrompts = computed(() => quickPromptsByType[contextType.value] || quickPromptsByType.generic)
 
 async function scrollToBottom() {
   await nextTick()
@@ -54,7 +125,7 @@ async function sendMessage(text) {
       },
       body: JSON.stringify({
         message: content,
-        context: props.context,
+        context: { ...props.context, context_type: contextType.value },
         // send the last few turns only, keeps the request small
         history: messages.value.slice(-8, -1)
       })
@@ -89,6 +160,12 @@ watch(
     messages.value = []
   }
 )
+
+// Also reset if the context type itself changes (e.g. the same widget
+// instance is reused across a question view and a dashboard view).
+watch(contextType, () => {
+  messages.value = []
+})
 </script>
 
 <template>
@@ -116,9 +193,9 @@ watch(
           <i class="fa-solid fa-sparkles text-xs"></i>
         </div>
         <div class="min-w-0">
-          <div class="text-sm font-bold leading-tight">VoimaX Assistant</div>
+          <div class="text-sm font-bold leading-tight">{{ headerTitle }}</div>
           <div class="text-[11px] text-blue-100 truncate leading-tight">
-            {{ context?.question_ref ? `On ${context.question_ref}` : 'Compliance guidance' }}
+            {{ headerSubtitle }}
           </div>
         </div>
       </div>
@@ -138,10 +215,9 @@ watch(
         >
           <i class="fa-solid fa-sparkles"></i>
         </div>
-        <div class="text-sm font-semibold text-slate-900 mb-1">Stuck on this question?</div>
+        <div class="text-sm font-semibold text-slate-900 mb-1">{{ emptyStateHeading }}</div>
         <div class="text-xs text-slate-500 mb-4 px-4">
-          Ask me anything about {{ context?.question_ref || 'this assessment' }} — I'll help you
-          figure out the right answer.
+          {{ emptyStateBody }}
         </div>
         <div class="flex flex-col gap-2 px-2">
           <button

@@ -6,6 +6,7 @@ import { supabase } from '@/services/supabase'
 import MainLayout from '@/components/Layouts/MainLayout.vue'
 import { useApplicantPortal } from '@/composables/useApplicationPortal'
 import { useApplicantAuthStore } from '@/stores/applicationAuth'
+import VoimaxAssistant from '@/components/Layouts/VoimaxAssistant.vue'
 const {
   application,
   documents,
@@ -478,7 +479,36 @@ function goToAssessment() {
     'noopener,noreferrer'
   )
 }
-
+const assistantContext = computed(() => ({
+  company_name: application.value?.company_name,
+  assessment_ref: assessmentRef.value,
+  assessment_status: assessmentStatus.value,
+  health_score: healthScore.value,
+  health_rating: healthRating.value,
+  module_scores: moduleScores.value.map((m: any) => ({
+    module_name: m.module_name,
+    score: Math.round(m.module_score ?? 0)
+  })),
+  gap_summary: {
+    open: gapSummary.value.open ?? 0,
+    critical: gapSummary.value.critical ?? 0,
+    high: gapSummary.value.high ?? 0,
+    medium: gapSummary.value.medium ?? 0,
+    low: gapSummary.value.low ?? 0
+  },
+  response_stats: {
+    compliant: responseStats.value.yes ?? 0,
+    gaps: responseStats.value.no ?? 0,
+    na: responseStats.value.na ?? 0,
+    unanswered: responseStats.value.unanswered ?? 0
+  },
+  top_gaps: gaps.value.slice(0, 10).map((g: any) => ({
+    ref: g.gap_ref,
+    title: g.title,
+    risk: g.risk_rating,
+    module: g.module_name
+  }))
+}))
 const evidenceRequests = computed<any[]>(() => dashboard.value?.evidence_requests ?? [])
 const uploadEvidenceForRequest = async (req: any, file: File) => {
   if (!file) return
@@ -816,6 +846,7 @@ const triggerFileInput = (id: string) => {
         <v-btn variant="text" @click="snack.show = false">Close</v-btn>
       </template>
     </v-snackbar>
+    <VoimaxAssistant v-if="!loading" :context="assistantContext" />
   </MainLayout>
 </template>
 
