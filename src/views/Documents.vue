@@ -552,7 +552,7 @@ const triggerFileInput = (id: string) => {
           <!-- ── Page heading ── -->
           <div class="ch-page-head">
             <div class="ch-page-head-left">
-              <div class="ch-page-eyebrow">Gap Analysis</div>
+              <div class="ch-page-eyebrow">Gap analysis Documents</div>
             </div>
           </div>
           <transition name="fade">

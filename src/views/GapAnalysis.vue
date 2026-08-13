@@ -5,6 +5,11 @@ import VueApexCharts from 'vue3-apexcharts'
 import { supabase } from '@/services/supabase'
 import { useApplicantAuthStore } from '@/stores/applicationAuth'
 import MainLayout from '@/components/Layouts/MainLayout.vue'
+import pdfMake from 'pdfmake/build/pdfmake'
+import pdfFonts from 'pdfmake/build/vfs_fonts'
+
+// pdfmake's vfs_fonts export shape varies by version — this covers both
+;(pdfMake as any).vfs = (pdfFonts as any).pdfMake?.vfs ?? (pdfFonts as any).vfs
 
 const router = useRouter()
 const authStore = useApplicantAuthStore()
@@ -456,6 +461,320 @@ function scoreBarColor(score: number) {
   return '#ef4444'
 }
 
+// ── PDF Report Generation ──────────────────────────────────────────────
+const generatingPdf = ref(false)
+
+function pdfRiskColor(r: string) {
+  return (
+    { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#65a30d' }[r] || '#94a3b8'
+  )
+}
+
+async function downloadGapAnalysisReport() {
+  generatingPdf.value = true
+  try {
+    const clientName = authStore.user?.client_name || authStore.user?.company_name || 'Client'
+    const generatedDate = new Date().toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    })
+
+    // ── Header block ──
+    const content: any[] = [
+      {
+        columns: [
+          {
+            width: '*',
+            stack: [
+              { text: 'VOIMA COMMAND CENTER', style: 'brand' },
+              { text: 'Compliance Gap Analysis Report', style: 'title' }
+            ]
+          },
+          {
+            width: 'auto',
+            stack: [
+              { text: clientName, style: 'metaRight' },
+              { text: assessmentRef.value ? `Ref: ${assessmentRef.value}` : '', style: 'metaRightSub' },
+              { text: `Generated ${generatedDate}`, style: 'metaRightSub' }
+            ],
+            alignment: 'right'
+          }
+        ]
+      },
+      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 12, 0, 20] }
+    ]
+
+    // ── Health score summary ──
+    content.push(
+      {
+        columns: [
+          {
+            width: 140,
+            stack: [
+              {
+                canvas: [
+                  { type: 'ellipse', x: 60, y: 60, r1: 55, r2: 55, color: rating.value.bg, lineColor: rating.value.color, lineWidth: 2 }
+                ]
+              },
+              { text: `${healthScore.value}`, style: 'scoreNumber', absolutePosition: undefined }
+            ],
+            alignment: 'center'
+          },
+          {
+            width: '*',
+            margin: [20, 10, 0, 0],
+            stack: [
+              { text: 'OVERALL HEALTH SCORE', style: 'sectionEyebrow' },
+              {
+                table: {
+                  widths: ['auto'],
+                  body: [[{ text: rating.value.label.toUpperCase(), style: 'ratingBadgeText', fillColor: rating.value.bg, border: [false, false, false, false] }]]
+                },
+                layout: 'noBorders',
+                margin: [0, 4, 0, 8]
+              },
+              {
+                text: `Status: ${assessmentStatus.value.replace(/_/g, ' ')}`,
+                style: 'metaSmall'
+              },
+              {
+                text: `${gapSummary.value.open ?? 0} open gap${(gapSummary.value.open ?? 0) === 1 ? '' : 's'} across ${moduleScores.value.length} module${moduleScores.value.length === 1 ? '' : 's'}`,
+                style: 'metaSmall'
+              }
+            ]
+          }
+        ]
+      },
+      { text: '', margin: [0, 0, 0, 20] }
+    )
+
+    // ── Gap severity summary pills ──
+    content.push(
+      { text: 'GAP BREAKDOWN BY SEVERITY', style: 'sectionEyebrow', margin: [0, 0, 0, 8] },
+      {
+        columns: [
+          gapPillCell('Critical', gapSummary.value.critical ?? 0, '#dc2626', '#fef2f2'),
+          gapPillCell('High', gapSummary.value.high ?? 0, '#ea580c', '#fff7ed'),
+          gapPillCell('Medium', gapSummary.value.medium ?? 0, '#d97706', '#fffbeb'),
+          gapPillCell('Low', gapSummary.value.low ?? 0, '#65a30d', '#f7fee7')
+        ],
+        columnGap: 10,
+        margin: [0, 0, 0, 24]
+      }
+    )
+
+    // ── Response breakdown ──
+    content.push(
+      { text: 'RESPONSE BREAKDOWN', style: 'sectionEyebrow', margin: [0, 0, 0, 8] },
+      {
+        table: {
+          widths: ['*', '*', '*', '*'],
+          body: [
+            [
+              respCell('Compliant', responseStats.value.yes ?? 0, '#22c55e'),
+              respCell('Gaps', responseStats.value.no ?? 0, '#ef4444'),
+              respCell('N/A', responseStats.value.na ?? 0, '#94a3b8'),
+              respCell('Unanswered', responseStats.value.unanswered ?? 0, '#cbd5e1')
+            ]
+          ]
+        },
+        layout: 'noBorders',
+        margin: [0, 0, 0, 24]
+      }
+    )
+
+    // ── Module scores table ──
+    content.push(
+      { text: 'MODULE SCORES', style: 'sectionEyebrow', margin: [0, 0, 0, 8] },
+      {
+        table: {
+          headerRows: 1,
+          widths: ['*', 70, 90],
+          body: [
+            [
+              { text: 'Module', style: 'thead' },
+              { text: 'Score', style: 'thead', alignment: 'right' },
+              { text: 'Rating', style: 'thead', alignment: 'center' }
+            ],
+            ...moduleScores.value.map((m: any) => {
+              const r = moduleRatingLabel(Math.round(m.module_score ?? 0))
+              return [
+                { text: m.module_name, style: 'tcell' },
+                { text: `${Math.round(m.module_score ?? 0)}%`, style: 'tcellBold', alignment: 'right' },
+                {
+                  text: r.label,
+                  style: 'tcellBadge',
+                  color: r.color,
+                  fillColor: r.bg,
+                  alignment: 'center'
+                }
+              ]
+            })
+          ]
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0,
+          hLineColor: () => '#f1f5f9',
+          paddingTop: () => 8,
+          paddingBottom: () => 8
+        },
+        margin: [0, 0, 0, 24]
+      }
+    )
+
+    // ── Gaps register ──
+    if (gaps.value.length) {
+      content.push({ text: 'COMPLIANCE GAPS', style: 'sectionEyebrow', pageBreak: 'before', margin: [0, 0, 0, 10] })
+      gaps.value.forEach((gap: any) => {
+        content.push({
+          table: {
+            widths: ['*'],
+            body: [
+              [
+                {
+                  border: [false, false, false, false],
+                  fillColor: '#fafafa',
+                  margin: [10, 8, 10, 8],
+                  stack: [
+                    {
+                      columns: [
+                        { text: gap.gap_ref, style: 'gapRef', width: 'auto' },
+                        {
+                          text: (gap.risk_rating || '').toUpperCase(),
+                          style: 'riskChip',
+                          color: pdfRiskColor(gap.risk_rating),
+                          fillColor: pdfRiskColor(gap.risk_rating) + '18',
+                          width: 'auto',
+                          margin: [8, 0, 0, 0]
+                        },
+                        { text: gap.module_name, style: 'metaSmall', alignment: 'right' }
+                      ]
+                    },
+                    { text: gap.title, style: 'gapTitle', margin: [0, 4, 0, 0] },
+                    gap.remediation_action
+                      ? { text: `Remediation: ${gap.remediation_action}`, style: 'remediation', margin: [0, 4, 0, 0] }
+                      : null,
+                    gap.evidence_request
+                      ? {
+                          text: `Evidence status: ${evidenceStatusLabel(gap.evidence_request.status)}${
+                            gap.evidence_request.due_date ? ' · due ' + formatDate(gap.evidence_request.due_date) : ''
+                          }`,
+                          style: 'metaSmall',
+                          margin: [0, 6, 0, 0]
+                        }
+                      : null
+                  ].filter(Boolean)
+                }
+              ]
+            ]
+          },
+          layout: { hLineWidth: () => 0, vLineWidth: () => 0 },
+          margin: [0, 0, 0, 10]
+        })
+      })
+    }
+
+    // ── Evidence requests ──
+    if (evidenceRequests.value.length) {
+      content.push({ text: 'EVIDENCE REQUESTS', style: 'sectionEyebrow', margin: [0, 20, 0, 10] })
+      evidenceRequests.value.forEach((req: any) => {
+        content.push({
+          table: {
+            widths: ['*'],
+            body: [
+              [
+                {
+                  border: [false, false, false, false],
+                  fillColor: '#f8fafc',
+                  margin: [10, 8, 10, 8],
+                  stack: [
+                    {
+                      text: `${req.question_ref || ''} — ${req.question_text || ''}`,
+                      style: 'gapTitle'
+                    },
+                    { text: req.instructions || '', style: 'metaSmall', margin: [0, 4, 0, 0] },
+                    {
+                      text: `Status: ${evidenceStatusLabel(req.status)}${
+                        req.due_date ? ' · due ' + formatDate(req.due_date) : ''
+                      }`,
+                      style: 'metaSmall',
+                      margin: [0, 4, 0, 0]
+                    }
+                  ]
+                }
+              ]
+            ]
+          },
+          layout: { hLineWidth: () => 0, vLineWidth: () => 0 },
+          margin: [0, 0, 0, 10]
+        })
+      })
+    }
+
+    const docDefinition: any = {
+      pageSize: 'A4',
+      pageMargins: [40, 50, 40, 50],
+      content,
+      styles: {
+        brand: { fontSize: 9, bold: true, color: '#2563eb', characterSpacing: 1 },
+        title: { fontSize: 18, bold: true, color: '#0f172a', margin: [0, 4, 0, 0] },
+        metaRight: { fontSize: 11, bold: true, color: '#0f172a' },
+        metaRightSub: { fontSize: 9, color: '#94a3b8', margin: [0, 2, 0, 0] },
+        sectionEyebrow: { fontSize: 10, bold: true, color: '#2563eb', characterSpacing: 0.5 },
+        scoreNumber: { fontSize: 26, bold: true, color: '#0f172a', alignment: 'center', margin: [0, -95, 0, 0] },
+        ratingBadgeText: { fontSize: 10, bold: true, color: '#0f172a', margin: [10, 5, 10, 5] },
+        metaSmall: { fontSize: 9, color: '#64748b' },
+        thead: { fontSize: 9, bold: true, color: '#94a3b8', margin: [0, 0, 0, 4] },
+        tcell: { fontSize: 10, color: '#0f172a', bold: true },
+        tcellBold: { fontSize: 11, bold: true, color: '#0f172a' },
+        tcellBadge: { fontSize: 9, bold: true, margin: [6, 3, 6, 3] },
+        gapRef: { fontSize: 10, bold: true, color: '#475569' },
+        gapTitle: { fontSize: 11, bold: true, color: '#0f172a' },
+        remediation: { fontSize: 9, italics: true, color: '#6d28d9' },
+        riskChip: { fontSize: 8, bold: true, margin: [6, 2, 6, 2] }
+      },
+      defaultStyle: { font: 'Roboto' },
+      footer: (currentPage: number, pageCount: number) => ({
+        columns: [
+          { text: 'Voima Command Center · Confidential', style: 'metaSmall', margin: [40, 0, 0, 0] },
+          { text: `Page ${currentPage} of ${pageCount}`, style: 'metaSmall', alignment: 'right', margin: [0, 0, 40, 0] }
+        ]
+      })
+    }
+
+    const fileSafeRef = (assessmentRef.value || 'gap-analysis').replace(/[^\w-]+/g, '-')
+    pdfMake.createPdf(docDefinition).download(`${fileSafeRef}-report.pdf`)
+  } catch (e: any) {
+    showSnack('Could not generate PDF: ' + (e?.message || 'unknown error'))
+  } finally {
+    generatingPdf.value = false
+  }
+}
+
+// small table-cell builders used above
+function gapPillCell(label: string, value: number, color: string, bg: string) {
+  return {
+    width: '*',
+    table: {
+      widths: ['*'],
+      body: [[{ text: [{ text: `${value}\n`, style: 'tcellBold', color }, { text: label, style: 'metaSmall' }], alignment: 'center', fillColor: bg, border: [false, false, false, false], margin: [0, 10, 0, 10] }]]
+    },
+    layout: 'noBorders'
+  }
+}
+function respCell(label: string, value: number, color: string) {
+  return {
+    stack: [
+      { canvas: [{ type: 'ellipse', x: 5, y: 5, r1: 4, r2: 4, color }] },
+      { text: `${value}`, style: 'tcellBold', margin: [0, 4, 0, 0] },
+      { text: label, style: 'metaSmall' }
+    ],
+    alignment: 'center'
+  }
+}
+
 async function handleLogout() {
   await authStore.logout()
   window.location.href = '/'
@@ -550,11 +869,22 @@ const triggerFileInput = (id: string) => {
 
         <template v-else>
           <!-- ── Page heading ── -->
-          <div class="ch-page-head">
-            <div class="ch-page-head-left">
-              <div class="ch-page-eyebrow">Gap Analysis</div>
-            </div>
-          </div>
+         <div class="ch-page-head">
+  <div class="ch-page-head-left">
+    <div class="ch-page-eyebrow">Gap Analysis</div>
+  </div>
+  <div class="ch-page-head-right">
+    <v-btn
+      class="ch-btn-primary"
+      elevation="0"
+      :loading="generatingPdf"
+      @click="downloadGapAnalysisReport"
+    >
+      <v-icon start size="15">mdi-file-download-outline</v-icon>
+      Download Report
+    </v-btn>
+  </div>
+</div>
           <transition name="fade">
             <div v-if="liveUpdateBanner" class="ch-live-banner">
               <v-icon size="15" color="#2563eb">mdi-sync</v-icon>
